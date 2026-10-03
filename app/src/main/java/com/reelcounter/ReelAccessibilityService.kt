@@ -1,10 +1,15 @@
 package com.reelcounter
 
 import android.accessibilityservice.AccessibilityService
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -13,6 +18,10 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ReelAccessibilityService : AccessibilityService() {
 
@@ -21,6 +30,15 @@ class ReelAccessibilityService : AccessibilityService() {
         const val PREFS = "reel_prefs"
         const val KEY_COUNT = "count"
         const val KEY_STRICT = "strict"
+        const val KEY_TODAY_COUNT = "today_count"
+        const val KEY_LAST_DATE = "last_date"
+        const val KEY_LIMIT = "daily_limit"
+        const val KEY_LIMIT_NOTIFIED_DATE = "limit_notified_date"
+        const val KEY_THEME = "theme"
+        const val CHANNEL_ID = "reel_limit_channel"
+
+        fun todayKey(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        fun dayCountKey(date: String) = "day_$date"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -32,6 +50,8 @@ class ReelAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        createNotificationChannel()
+        resetDailyIfNeeded()
     }
 
     override fun onAccessibilityEvent(e: AccessibilityEvent) {
@@ -53,13 +73,86 @@ class ReelAccessibilityService : AccessibilityService() {
         }
     }
 
-    // Scroll ruk gaya = ek reel badli, to count +1
     private fun onScrollSettled() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastCountTime < 700) return
         lastCountTime = now
-        prefs.edit().putInt(KEY_COUNT, prefs.getInt(KEY_COUNT, 0) + 1).apply()
+
+        resetDailyIfNeeded()
+
+        val total = prefs.getInt(KEY_COUNT, 0) + 1
+        val today = prefs.getInt(KEY_TODAY_COUNT, 0) + 1
+        val dKey = dayCountKey(todayKey())
+        val dayTotal = prefs.getInt(dKey, 0) + 1
+
+        prefs.edit()
+            .putInt(KEY_COUNT, total)
+            .putInt(KEY_TODAY_COUNT, today)
+            .putInt(dKey, dayTotal)
+            .apply()
+
         overlay?.text = label()
+        updateWidget()
+        checkLimit(today)
+    }
+
+    private fun resetDailyIfNeeded() {
+        val last = prefs.getString(KEY_LAST_DATE, "")
+        val today = todayKey()
+        if (last != today) {
+            prefs.edit()
+                .putString(KEY_LAST_DATE, today)
+                .putInt(KEY_TODAY_COUNT, 0)
+                .apply()
+        }
+    }
+
+    private fun checkLimit(todayCount: Int) {
+        val limit = prefs.getInt(KEY_LIMIT, 0)
+        if (limit <= 0) return
+        if (todayCount < limit) return
+        val notifiedDate = prefs.getString(KEY_LIMIT_NOTIFIED_DATE, "")
+        val today = todayKey()
+        if (notifiedDate == today) return
+        prefs.edit().putString(KEY_LIMIT_NOTIFIED_DATE, today).apply()
+        sendLimitNotification(todayCount, limit)
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val mgr = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Reel limit alerts", NotificationManager.IMPORTANCE_DEFAULT
+            )
+            mgr?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun sendLimitNotification(count: Int, limit: Int) {
+        try {
+            val notif = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("⏰ Reel limit pura ho gaya!")
+                .setContentText("Aaj $count reels dekh li (limit: $limit). Thoda break le lo 😊")
+                .setAutoCancel(true)
+                .build()
+            val mgr = getSystemService(NotificationManager::class.java)
+            mgr?.notify(1001, notif)
+        } catch (_: Exception) {}
+    }
+
+    private fun updateWidget() {
+        try {
+            val mgr = AppWidgetManager.getInstance(this)
+            val ids = mgr.getAppWidgetIds(ComponentName(this, ReelCounterWidget::class.java))
+            if (ids.isNotEmpty()) {
+                val intent = Intent(this, ReelCounterWidget::class.java).apply {
+                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+                }
+                sendBroadcast(intent)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun isReelsScreen(): Boolean {

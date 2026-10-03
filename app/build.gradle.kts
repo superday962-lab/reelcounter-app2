@@ -10,8 +10,8 @@ android {
         applicationId = "com.reelcounter"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.00"
+        versionCode = 2
+        versionName = "1.2"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
