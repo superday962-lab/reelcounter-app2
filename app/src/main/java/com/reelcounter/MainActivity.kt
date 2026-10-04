@@ -254,7 +254,7 @@ class MainActivity : Activity() {
                 intArrayOf(cOrange, cPink, cPurple)
             ).apply { cornerRadius = dp(16).toFloat() }
             setPadding(dp(16), dp(16), dp(16), dp(16))
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            setOnClickListener { showPreWarningExplainer() }
         }
 
         val howToBtn = Button(this).apply {
@@ -307,6 +307,41 @@ class MainActivity : Activity() {
         container.addView(howToBtn)
         container.addView(resetBtn)
         return container
+    }
+
+    private fun showPreWarningExplainer() {
+        val already = prefs.getBoolean("explainer_seen", false)
+        if (already) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return
+        }
+        val msg = """
+            Agle screen pe Android ek laal warning dikhayega jaise:
+            "This permission can put your personal and financial info at risk."
+
+            🛡️ Ghabrao mat — ye warning Android HAR accessibility app ko dikhata hai, chahe app kuch bhi kare. Ye sirf ek general safety notice hai.
+
+            Ye app sirf itna karti hai:
+            • Check karti hai ki Instagram khula hai ya nahi
+            • Scroll hone par ek number ginti hai
+
+            ❌ Koi password, message, photo nahi padhti
+            ❌ Internet pe koi data nahi bhejti
+            ✅ Sab kuch sirf tumhare phone ke andar rehta hai
+
+            Warning aane par 'Allow' / 'Turn on anyway' dabake aage badh jana.
+        """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle("🛡️ Permission dene se pehle")
+            .setMessage(msg)
+            .setPositiveButton("Samajh gaya, aage badho") { _, _ ->
+                prefs.edit().putBoolean("explainer_seen", true).apply()
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+            .setNegativeButton("Cancel", null)
+            .setCancelable(false)
+            .show()
     }
 
     private fun showHowTo() {
